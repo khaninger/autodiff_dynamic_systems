@@ -17,14 +17,19 @@ class sys():
         new_den = con(self.den, other.den)
         return sys(new_num, new_den)
 
-    def __div__(self, other):
+    def __truediv__(self, other):
         new_num = con(self.num, other.den)
         new_den = con(self.den, other.num)
         return sys(new_num, new_den)
 
-    def __plus__(self, other):
-        new_num = ladd(con(self.num, other.den), con(self.den, other.num))
-        new_den = con(self.den, other.den)
+    def __add__(self, other):
+        if isinstance(other, sys):
+            new_num = ladd(con(self.num, other.den), con(self.den, other.num))
+            new_den = con(self.den, other.den)
+        else:
+            new_num = ladd(other*self.den, self.num)
+            new_den = self.den
+        return sys(new_num, new_den)
 
     def __str__(self):
         return 'num: ' + str(self.num) + ' den: ' + str(self.den)
@@ -32,6 +37,41 @@ class sys():
     def h2_norm(self):
         A, B, C = tf2ss(self.num, self.den)
         return h2_norm(A, B, C)
+
+    def get_real_and_imag(self):
+        # Returns a function (over freq in rad/sec) for the real/imag components of the tf
+        # TODO Not fully tested here, just copied from jupyter
+        den_cc_coeff = deepcopy(G_den)
+        for i in range(1, len(den_cc_coeff)):
+            if i % 2 == 1: # odd power of 's' 
+                den_cc_coeff[-i-1] = -den_cc_coeff[-i-1]
+
+        # multiply num and den by complex conjugate
+        num_cc = con(G_num, den_cc_coeff)
+        den_cc = con(G_den, den_cc_coeff)
+
+        # substitute s=jw, making all even powers of j into -1
+        for i in range(0, len(num_cc)): # start at 1 to skip the 0th power of j\omega
+            number_of_i_squared = ca.floor(i/2)
+            if number_of_i_squared % 2 == 1:   # odd number of i^2 -> -1
+                num_cc[-i-1] *= -1.0
+        for i in range(0, len(den_cc)):
+            num_i_squared = ca.floor(i/2)
+            if num_i_squared % 2 == 1: # odd number of i^2 -> -1
+                den_cc[-i-1] *= -1.0
+        imag_coeff = deepcopy(num_cc)
+        real_coeff = deepcopy(num_cc)
+        for i in range(len(num_cc)):
+            if i % 2 == 0: # even power of 's', 
+                imag_coeff[-i-1] *= 0.0
+            else:
+                real_coeff[-i-1] *= 0.0
+        s = ca.SX('s')
+        imag_poly = ca.polyval(ca.horzcat(*imag_coeff),s)
+        real_poly = ca.polyval(ca.horzcat(*real_coeff),s)
+        den_poly = ca.polyval(ca.horzcat(*den_cc),s)
+        imag_fn = ca.Function('imag_fn', [s, M, B, Kp, Kd, Ma, Ba, Kl], [imag_poly/den_poly])
+        real_fn = ca.Function('real_fn', [s, M, B, Kp, Kd, Ma, Ba, Kl], [real_poly/den_poly])
 
 def con(a_in, b_in):
 # Convolve the lists a_in and b_in; assumes + and * defined over the elements
