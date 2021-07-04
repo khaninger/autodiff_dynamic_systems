@@ -4,6 +4,7 @@ import numpy as np
 
 class sys():
     def __init__(self, num, den):
+        # Check if we can cancel some poles/zeros at 0
         self.num = num
         self.den = den
 
@@ -34,9 +35,17 @@ class sys():
     def __str__(self):
         return 'num: ' + str(self.num) + ' den: ' + str(self.den)
 
-    def h2_norm(self):
+    def h2_norm(self, sol = 'lapacklu'):
+        while ca.MX.is_zero(self.num[-1]) and ca.MX.is_zero(self.den[-1]):
+            print('Cancelling pole/zero at 0')
+            self.num.pop()
+            self.den.pop() 
+        if ca.MX.is_zero(self.den[-1]):
+            print("System has pole at zero; H2 undefined")
+        if len(self.num) >= len(self.den):
+            print("System has relative degree greater than -1; H2 undefined")
         A, B, C = tf2ss(self.num, self.den)
-        return h2_norm(A, B, C)
+        return h2_norm(A, B, C, sol = sol)
 
     def get_real_and_imag(self):
         # Returns a function (over freq in rad/sec) for the real/imag components of the tf
@@ -140,35 +149,37 @@ def tf2ss(num_in, den_in):
     den = deepcopy(den_in)
 
     # Check if we can cancel some poles/zeros at 0
-    while ca.SX.is_zero(num[-1]) and ca.SX.is_zero(den[-1]):
+    while ca.MX.is_zero(num[-1]) and ca.MX.is_zero(den[-1]):
         print('Cancelling pole/zero at 0')
         num.pop()
         den.pop() 
 
     # Pad front of numerator so they're the same length
     n = len(den)-1
-    num_exp = [0]*(n-len(num)) + num
+    num = [0]*(n-len(num)) + num
 
     # Scale so leading coeff on den is 1
-    num_exp = [nu/den[0] for nu in num_exp]
-    den_exp = [de/den[0] for de in den]
+    num = [nu/den[0] for nu in num]
+    den = [de/den[0] for de in den]
 
-    Am = ca.vertcat(ca.horzcat(ca.SX.zeros((n-1,1)), ca.SX.eye(n-1)), ca.SX.zeros((1,n)))
-    Bm = ca.SX.zeros((n,1))
-    Cm = ca.SX.zeros((1,n))
+    Am = ca.vertcat(ca.horzcat(ca.MX.zeros((n-1,1)), ca.MX.eye(n-1)), ca.MX.zeros((1,n)))
+    Bm = ca.MX.zeros((n,1))
+    Cm = ca.MX.zeros((1,n))
     for i in range(n):
-        Am[-1, i] = -den_exp[-i-1]
-        Cm[i] = num_exp[-i-1]
+        Am[-1, i] = -den[-i-1]
+        Cm[0,i] = num[-i-1]
     Bm[-1] = 1
     return Am, Bm, Cm
 
-def lyap(A, Q):
+def lyap(A, Q, sol='symbolicqr'):
 # Solve the Lyapunov equation A'X+XA = Q for real A in R n x n
     n = A.shape[0]
     if not A.shape[1] == n or not Q.shape[0] == n or not Q.shape[1] == n:
         print('ERROR in lyap: A and Q must be square of same dim')
     vec_Q = ca.reshape(Q, n*n, 1)
-    vec_X = ca.solve(ca.kron(np.eye(n),A) + ca.kron(A, np.eye(n)), -vec_Q) 
+    vec_IA_AI = ca.kron(np.eye(n),A) + ca.kron(A, np.eye(n))
+    linsolver = ca.Linsol('lyapsol',sol, vec_IA_AI.sparsity(), {})
+    vec_X = linsolver.solve(vec_IA_AI, -vec_Q) 
     return ca.reshape(vec_X, n, n)
 
 def rev_mode_lyap(A, Q, P, P_bar):
@@ -179,9 +190,9 @@ def rev_mode_lyap(A, Q, P, P_bar):
     Q_bar = S
     return A_bar, Q_bar
 
-def h2_norm(A, B, C):
+def h2_norm(A, B, C, sol = 'lapacklu'):
 # Calculate the H2 norm of the system by the observability grammian 
-    Xo = lyap(A.T, C.T @ C)
+    Xo = lyap(A.T, C.T @ C, sol = sol)
     return ca.sqrt(ca.trace(B.T @ Xo @ B))
 
 def rev_mode_riccati(A, B, C, Q, P, P_bar):
