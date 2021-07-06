@@ -1,6 +1,7 @@
 import casadi as ca
 from copy import deepcopy
 import numpy as np
+import matplotlib.pyplot as plt
 
 class sys():
     def __init__(self, num, den):
@@ -47,19 +48,20 @@ class sys():
         A, B, C = tf2ss(self.num, self.den)
         return h2_norm(A, B, C, sol = sol)
 
-    def get_real_and_imag(self):
-        # Returns a function (over freq in rad/sec) for the real/imag components of the tf
-        # TODO Not fully tested here, just copied from jupyter
-        den_cc_coeff = deepcopy(G_den)
-        for i in range(1, len(den_cc_coeff)):
+    def get_re_im(self, param_sym):
+        den = deepcopy(self.den)
+        den_cc = deepcopy(self.den)
+        num = deepcopy(self.num)
+        # Make the complex conjugate of denominator
+        for i in range(1, len(den)):
             if i % 2 == 1: # odd power of 's' 
-                den_cc_coeff[-i-1] = -den_cc_coeff[-i-1]
+                den_cc[-i-1] = -den_cc[-i-1]
 
         # multiply num and den by complex conjugate
-        num_cc = con(G_num, den_cc_coeff)
-        den_cc = con(G_den, den_cc_coeff)
+        num_cc = con(self.num, den_cc)
+        den_cc = con(self.den, den_cc)
 
-        # substitute s=jw, making all even powers of j into -1
+        # Substitute s = j\omega (turn those j^2, j^4,... into -1^n/2)
         for i in range(0, len(num_cc)): # start at 1 to skip the 0th power of j\omega
             number_of_i_squared = ca.floor(i/2)
             if number_of_i_squared % 2 == 1:   # odd number of i^2 -> -1
@@ -68,19 +70,56 @@ class sys():
             num_i_squared = ca.floor(i/2)
             if num_i_squared % 2 == 1: # odd number of i^2 -> -1
                 den_cc[-i-1] *= -1.0
+
         imag_coeff = deepcopy(num_cc)
         real_coeff = deepcopy(num_cc)
         for i in range(len(num_cc)):
             if i % 2 == 0: # even power of 's', 
-                imag_coeff[-i-1] *= 0.0
+                imag_coeff[-i-1] = ca.MX(0)
             else:
-                real_coeff[-i-1] *= 0.0
-        s = ca.SX('s')
-        imag_poly = ca.polyval(ca.horzcat(*imag_coeff),s)
-        real_poly = ca.polyval(ca.horzcat(*real_coeff),s)
-        den_poly = ca.polyval(ca.horzcat(*den_cc),s)
-        imag_fn = ca.Function('imag_fn', [s, M, B, Kp, Kd, Ma, Ba, Kl], [imag_poly/den_poly])
-        real_fn = ca.Function('real_fn', [s, M, B, Kp, Kd, Ma, Ba, Kl], [real_poly/den_poly])
+                real_coeff[-i-1] = ca.MX(0)
+        omega = ca.MX.sym('omega')
+        imag_poly = ca.polyval(ca.vertcat(*imag_coeff),omega)
+        real_poly = ca.polyval(ca.vertcat(*real_coeff),omega)
+        den_poly = ca.polyval(ca.vertcat(*den_cc),omega)
+        imag_fn = ca.Function('imag_fn', [omega, *param_sym], [imag_poly/den_poly])
+        real_fn = ca.Function('real_fn', [omega, *param_sym], [real_poly/den_poly])
+        return real_fn, imag_fn
+
+    def nyquist(self, param_sym, param_num):
+        real_fn, imag_fn = self.get_re_im(param_sym)
+        plt.figure()
+        plt.clf()
+        for om in np.logspace(-3,5, num = 1000):
+            plt.plot(real_fn(om, *param_num), imag_fn(om, *param_num),'ko')
+        
+        '''
+        r1, r2 = self.critical_points(imag_coeff, den_cc)
+        r1_fn = ca.Function('r1', [*param_sym], [r1])
+        r2_fn = ca.Function('r2', [*param_sym], [r2])
+        r1_num = r1_fn(*param_num)
+        r2_num = r2_fn(*param_num)
+        print('roots: {} {}'.format(r1_num, r2_num))
+        plt.plot(real_fn(r1_num, *param_num), imag_fn(6.28*r1_num, *param_num),'rx')
+        plt.plot(real_fn(r2_num, *param_num), imag_fn(6.28*r2_num, *param_num),'rx')
+        '''
+
+    def critical_points(self, num, den):
+        # Find points where the slope of the given polynomial are zero
+        d_num = der(num)
+        d_den = der(den)
+        d_num_total = lsub(con(den, d_num), con(num, d_den))
+        print(con(den, d_num))
+        print(con(d_den, num))
+        poly_coeffs = ca.MX.sym('poly',3,1)
+        #print(d_coeffs)
+        #a = d_coeffs[0]
+        #b = d_coeffs[2]
+        #c = d_coeffs[4]
+        #print('a {} b {} c{}'.format(a, b, c))
+        #r1 = ca.sqrt(-(-b+ca.sqrt(b**2-4*a*c))/(2*a))
+        #r2 = ca.sqrt(-(-b-ca.sqrt(b**2-4*a*c))/(2*a))
+        return r1, r2
 
 def con(a_in, b_in):
 # Convolve the lists a_in and b_in; assumes + and * defined over the elements
@@ -108,6 +147,17 @@ def ladd(a_in, b_in):
     a = [0]*(n-len(a)) + a
     b = [0]*(n-len(b)) + b
     return [aa+bb for aa, bb in zip(a,b)]
+
+
+def lsub(a_in, b_in):
+    a = deepcopy(a_in)
+    b = deepcopy(b_in)
+    n = max(len(a),len(b))
+    a = [0]*(n-len(a)) + a
+    b = [0]*(n-len(b)) + b
+    return [aa-bb for aa, bb in zip(a,b)]
+
+
 
 def fb(G, C):
 # Return G/(1+GC), negative FB
@@ -216,9 +266,4 @@ def pade(dt, N):
         den = [dt**4, 8*dt**3, 48*dt**2, 192*dt, 384]
     if N > 4:
         print('N > 4 not supported, just giving N = 4')
-    return num, den
-
-def taylor_delay(dt, N):
-    num = [dt**2, -4*dt, 8]
-    den = [dt**2,  4*dt, 8]
-    return num, den
+    return sys(num, den)
