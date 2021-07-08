@@ -121,6 +121,84 @@ class sys():
         #r2 = ca.sqrt(-(-b-ca.sqrt(b**2-4*a*c))/(2*a))
         return r1, r2
 
+
+class lyap_solver(ca.Callback):
+    from scipy.linalg import solve_continuous_lyapunov
+    # Following the /test/python/function.py
+    def __init__(self, name, d, opts = {}):
+        ca.Callback.__init__(self)
+        self.d = d
+        self.construct(name, opts)
+
+    def get_n_in(self):  return 2
+    def get_n_out(self): return 1
+    def get_sparsity_in(self, i): return ca.Sparsity.dense(self.d, self.d)
+    def get_sparsity_out(self, i): return ca.Sparsity.dense(self.d, self.d)
+
+    def has_forward(self, nfwd): return True
+    def has_reverse(self, nadj): return True
+
+    def init(self):
+        print('initializing')
+
+    def eval(self, arg):
+        from scipy.linalg import solve_continuous_lyapunov
+        A = arg[0]
+        Q = arg[1]
+        return [solve_continuous_lyapunov(A, -Q)]
+
+    def get_forward(self, nfwd, name, inames, onames, opts):
+        assert(nfwd==1)
+        class ForwardFun(ca.Callback):
+            
+            def __init__(self, d):
+                ca.Callback.__init__(self)
+                self.d = d
+                self.construct(name, opts)
+            def get_n_in(self):  return 5
+            def get_n_out(self): return 1
+            def get_sparsity_in(self, i): return ca.Sparsity.dense(self.d, self.d)
+            def get_sparsity_out(self, i): return ca.Sparsity.dense(self.d, self.d)
+
+            def eval(self, arg):
+                # The argument order seems to be: args to f(), solution to f(), then the deriv of inputs to f().
+                from scipy.linalg import solve_continuous_lyapunov # Sorry, but the C++ bindings cant find if we import above
+                A = arg[0]
+                Q = arg[1]
+                P = arg[2]
+                Ad = arg[3]
+                Qd = arg[4]
+                Pd = solve_continuous_lyapunov(-A, (Ad @ P + P @ Ad + Qd))
+                return [Pd]
+
+        self.cb_fwd = ForwardFun(self.d)
+        return self.cb_fwd
+
+    def get_reverse(self, nadj, name, inames, onames, opts):
+        assert(nadj==1)
+        class BackwardFun(ca.Callback):
+            def __init__(self, d):
+                ca.Callback.__init__(self)
+                self.d = d
+                self.construct(name, opts)
+            def get_n_in(self):  return 4
+            def get_n_out(self): return 2
+            def get_sparsity_in(self, i): return ca.Sparsity.dense(self.d, self.d)
+            def get_sparsity_out(self, i): return ca.Sparsity.dense(self.d, self.d)
+            def eval(self, arg):
+                # The argument order seems to be: args to f(), solution to f(), then the deriv of inputs to f().
+                from scipy.linalg import solve_continuous_lyapunov # Sorry, but the C++ bindings cant find if we import above
+                A = arg[0]
+                Q = arg[1]
+                P = arg[2]
+                Pbar = arg[3]
+                S = solve_continuous_lyapunov(A, -Pbar)
+                return [S @ P.T + S.T @ P, S]
+
+        self.cb_rev = BackwardFun(self.d)
+        return self.cb_rev
+
+
 def con(a_in, b_in):
 # Convolve the lists a_in and b_in; assumes + and * defined over the elements
     a = deepcopy(a_in)
