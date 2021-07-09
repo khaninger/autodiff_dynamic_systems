@@ -28,15 +28,24 @@ class sys():
         if isinstance(other, sys):
             new_num = ladd(con(self.num, other.den), con(self.den, other.num))
             new_den = con(self.den, other.den)
-        else:
-            new_num = ladd(other*self.den, self.num)
+        elif other == 1:
+            new_num = ladd(self.den, self.num)
+            new_den = self.den
+        return sys(new_num, new_den)
+
+    def __radd__(self, other):
+        if isinstance(other, sys):
+            new_num = ladd(con(self.num, other.den), con(self.den, other.num))
+            new_den = con(self.den, other.den)
+        elif other == 1:
+            new_num = ladd(self.den, self.num)
             new_den = self.den
         return sys(new_num, new_den)
 
     def __str__(self):
         return 'num: ' + str(self.num) + ' den: ' + str(self.den)
 
-    def h2_norm(self, sol = 'lapacklu'):
+    def h2(self, sol = 'scipy'):
         while ca.MX.is_zero(self.num[-1]) and ca.MX.is_zero(self.den[-1]):
             print('Cancelling pole/zero at 0')
             self.num.pop()
@@ -46,7 +55,8 @@ class sys():
         if len(self.num) >= len(self.den):
             print("System has relative degree greater than -1; H2 undefined")
         A, B, C = tf2ss(self.num, self.den)
-        return h2_norm(A, B, C, sol = sol)
+        h2_result, self.solver = h2(A, B, C, sol = sol)
+        return h2_result
 
     def get_re_im(self, param_sym):
         den = deepcopy(self.den)
@@ -138,9 +148,6 @@ class lyap_solver(ca.Callback):
     def has_forward(self, nfwd): return True
     def has_reverse(self, nadj): return True
 
-    def init(self):
-        print('initializing')
-
     def eval(self, arg):
         from scipy.linalg import solve_continuous_lyapunov
         A = arg[0]
@@ -148,17 +155,19 @@ class lyap_solver(ca.Callback):
         return [solve_continuous_lyapunov(A, -Q)]
 
     def get_forward(self, nfwd, name, inames, onames, opts):
-        assert(nfwd==1)
         class ForwardFun(ca.Callback):
-            
             def __init__(self, d):
                 ca.Callback.__init__(self)
                 self.d = d
                 self.construct(name, opts)
             def get_n_in(self):  return 5
             def get_n_out(self): return 1
-            def get_sparsity_in(self, i): return ca.Sparsity.dense(self.d, self.d)
-            def get_sparsity_out(self, i): return ca.Sparsity.dense(self.d, self.d)
+            def get_sparsity_in(self, i):
+                if i < 3:
+                    return ca.Sparsity.dense(self.d, self.d)
+                else:
+                    return ca.Sparsity.dense(self.d, self.d*nfwd)
+            def get_sparsity_out(self, i): return ca.Sparsity.dense(self.d, self.d*nfwd)
 
             def eval(self, arg):
                 # The argument order seems to be: args to f(), solution to f(), then the deriv of inputs to f().
@@ -166,10 +175,13 @@ class lyap_solver(ca.Callback):
                 A = arg[0]
                 Q = arg[1]
                 P = arg[2]
-                Ad = arg[3]
-                Qd = arg[4]
-                Pd = solve_continuous_lyapunov(-A, (Ad @ P + P @ Ad + Qd))
-                return [Pd]
+                ret = []
+                for i in range(nfwd):
+                    Ad = arg[3][:,self.d*i:self.d*(i+1)]
+                    Qd = arg[4][:,self.d*i:self.d*(i+1)]
+                    Pd = solve_continuous_lyapunov(-A, (Ad @ P + P @ Ad.T + Qd))
+                    ret.append(Pd)
+                return [np.hstack(ret)]
 
         self.cb_fwd = ForwardFun(self.d)
         return self.cb_fwd
@@ -192,7 +204,7 @@ class lyap_solver(ca.Callback):
                 Q = arg[1]
                 P = arg[2]
                 Pbar = arg[3]
-                S = solve_continuous_lyapunov(A, -Pbar)
+                S = solve_continuous_lyapunov(A.T, -Pbar)
                 return [S @ P.T + S.T @ P, S]
 
         self.cb_rev = BackwardFun(self.d)
@@ -234,8 +246,6 @@ def lsub(a_in, b_in):
     a = [0]*(n-len(a)) + a
     b = [0]*(n-len(b)) + b
     return [aa-bb for aa, bb in zip(a,b)]
-
-
 
 def fb(G, C):
 # Return G/(1+GC), negative FB
@@ -299,34 +309,6 @@ def tf2ss(num_in, den_in):
     Bm[-1] = 1
     return Am, Bm, Cm
 
-def lyap(A, Q, sol='symbolicqr'):
-# Solve the Lyapunov equation A'X+XA = Q for real A in R n x n
-    n = A.shape[0]
-    if not A.shape[1] == n or not Q.shape[0] == n or not Q.shape[1] == n:
-        print('ERROR in lyap: A and Q must be square of same dim')
-    vec_Q = ca.reshape(Q, n*n, 1)
-    vec_IA_AI = ca.kron(np.eye(n),A) + ca.kron(A, np.eye(n))
-    linsolver = ca.Linsol('lyapsol',sol, vec_IA_AI.sparsity(), {})
-    vec_X = linsolver.solve(vec_IA_AI, -vec_Q) 
-    return ca.reshape(vec_X, n, n)
-
-def rev_mode_lyap(A, Q, P, P_bar):
-# Following "Automatic differentiation of Sylvester, Lyapunov and algebraic Riccati equations" from Kao and Hennequin
-# Not actually necessary (can just do autodiff through lyap)
-    S = lyap(A.T, P_bar)
-    A_bar = S @ P.T + S.T @ P
-    Q_bar = S
-    return A_bar, Q_bar
-
-def h2_norm(A, B, C, sol = 'lapacklu'):
-# Calculate the H2 norm of the system by the observability grammian 
-    Xo = lyap(A.T, C.T @ C, sol = sol)
-    return ca.sqrt(ca.trace(B.T @ Xo @ B))
-
-def rev_mode_riccati(A, B, C, Q, P, P_bar):
-    A_tilde = A-B@K
-
-
 def pade(dt, N):
 # Returns num/den for a 3rd order pade approx
 # See, e.g. "Rational Approximation of Time Delay" by Hanta
@@ -334,14 +316,37 @@ def pade(dt, N):
         num = [-dt, 2]
         den = [dt, 2]
     elif N == 2:
-        num = [dt**2, -4*dt, 8]
-        den = [dt**2, 4*dt, 8]
+        num = [dt**2, -6*dt, 12]
+        den = [dt**2,  6*dt, 12]
     elif N == 3:
-        num = [-dt**3, 6*dt**2, -24*dt,  48]
-        den = [dt**3, 6*dt**2, 24*dt, 48]
+        num = [-dt**3, 12*dt**2, -60*dt,  120]
+        den = [ dt**3, 12*dt**2,  60*dt, 120]
     else:
-        num = [dt**4, -8*dt**3, 48*dt**2, -192*dt, 384]
-        den = [dt**4, 8*dt**3, 48*dt**2, 192*dt, 384]
+        num = [dt**4, -20*dt**3, 180*dt**2, -840*dt, 1680]
+        den = [dt**4,  20*dt**3, 180*dt**2,  840*dt, 1680]
     if N > 4:
         print('N > 4 not supported, just giving N = 4')
     return sys(num, den)
+
+def lyap(A, Q, sol='scipy'):
+    # Solve the Lyapunov equation A'X+XA = Q for real A in R n x n
+    n = A.shape[0]
+    if not A.shape[1] == n or not Q.shape[0] == n or not Q.shape[1] == n:
+        print('ERROR in lyap: A and Q must be square of same dim')
+    if sol is 'scipy':
+        solver = lyap_solver('lyap_solver', A.shape[0])
+        X = solver(A, Q)
+    else:
+    # Solve with the casadi solve. Not as num stable for poorly-conditioned A/Q.
+        vec_Q = ca.reshape(Q, n*n, 1)
+        vec_IA_AI = ca.kron(np.eye(n),A) + ca.kron(A, np.eye(n))
+        solver = ca.Linsol('lyapsol',sol, vec_IA_AI.sparsity(), {})
+        vec_X = solver.solve(vec_IA_AI, -vec_Q)
+        X = ca.reshape(vec_X, n, n)
+    return X, solver # solver needs to be kept for scipy to call reverse/forward later.
+
+def h2(A, B, C, sol = 'scipy'):
+    Xo, solver = lyap(A.T, C.T @ C, sol = sol)
+    h2 = ca.sqrt(ca.trace(B.T @ Xo @ B))
+    return h2, solver
+
