@@ -126,12 +126,12 @@ def pade(dt, N):
         den = [dt**4,  20*dt**3, 180*dt**2,  840*dt, 1680]
     if N > 4:
         print('N > 4 not supported, just giving N = 4')
-    return sys(num, den)
+    return num, den
 
 def lyap(A, Q, sol='scipy'):
     # Solve the Lyapunov equation A'X+XA = Q for real A in R n x n
     n = A.shape[0]
-    if not A.shape[1] == n or not Q.shape[0] == n or not Q.shape[1] == n:
+    if not A.shape[1] == n or not Q.shazpe[0] == n or not Q.shape[1] == n:
         print('ERROR in lyap: A and Q must be square of same dim')
     if sol is 'scipy':
         solver = LyapSolver('lyap_solver', A.shape[0])

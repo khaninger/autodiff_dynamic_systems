@@ -6,14 +6,13 @@
 import casadi as ca
 import numpy as np
 
-
 class ForwardFun(ca.Callback):
     def __init__(self, d, nfwd, name, inames, onames, opts):
         ca.Callback.__init__(self)
         self.d = d
         self.nfwd = nfwd
-        opts['enable_fd'] = True
-        #self.fwd_hess = ForwardHessianFn(d, name, inames, onames, opts)
+        #opts['enable_fd'] = True
+        self.fwd_hess = []
         self.construct(name, opts)
     def get_n_in(self):  return 5
     def get_n_out(self): return 1
@@ -34,28 +33,47 @@ class ForwardFun(ca.Callback):
         for i in range(self.nfwd):
             Ad = arg[3][:,self.d*i:self.d*(i+1)]
             Qd = arg[4][:,self.d*i:self.d*(i+1)]
-            Pd = solve_continuous_lyapunov(-A, (Ad @ P + P @ Ad.T + Qd))
+            Pd = solve_continuous_lyapunov(A, -(Ad @ P + P @ Ad.T + Qd))
             ret.append(Pd)
         return [np.hstack(ret)]
-    #def has_forward(self, nfwd): return (nfwd == 1)
-    #def get_forward(self, nfwd, name, inames, onames, opts):
-    #    return self.fwd_hess
+    def has_forward(self, nfwd): return True
+    def get_forward(self, nfwd, name, inames, onames, opts):
+        self.fwd_hess.append(ForwardForwardFn(self.d, nfwd, name, inames, onames, opts))
+        return self.fwd_hess[-1]
 
-'''
-Has issues w/ dimension b/c it's a matrix valued function :/
-class ForwardHessianFn(ca.Callback):
-    def __init__(self, d, name, inames, onames, opts):
+class ForwardForwardFn(ca.Callback):
+    def __init__(self, d, nfwd, name, inames, onames, opts):
         ca.Callback.__init__(self)
         self.d = d
+        self.nfwd = nfwd
         self.construct(name, opts)
     def get_n_in(self):  return 11
     def get_n_out(self): return 1
-    def get_sparsity_in(self, i):  return ca.Sparsity.dense(self.d, self.d)
-    def get_sparsity_out(self, i): return ca.Sparsity.dense(self.d, self.d)
+    def get_sparsity_in(self, i):
+        if i < 6:
+            return ca.Sparsity.dense(self.d, self.d)
+        else:
+            return ca.Sparsity.dense(self.d, self.d*self.nfwd)
+    def get_sparsity_out(self, i): return ca.Sparsity.dense(self.d, self.d*self.nfwd)
     def eval(self, arg):
-        print(len(arg))
-        return np.ones((self.d, self.d, self.d))
-'''
+        from scipy.linalg import solve_continuous_lyapunov # Sorry, but the Casadi VM cant find if we import above
+        # First 5 arguments are the inputs to fwd_lyap (i.e. the points about which Pd is calculated)
+        A = arg[0]
+        P = arg[2]
+        Ad = arg[3]
+        # Pd is the solution to the first fwd_lyap
+        Pd = arg[5]
+        ret = []
+        for i in range(self.nfwd):
+            # These are tangent inputs to the individual arguments
+            Ad_ = arg[6][:,self.d*i:self.d*(i+1)]
+            Pd_ = arg[8][:,self.d*i:self.d*(i+1)]
+            Add_ = arg[9][:,self.d*i:self.d*(i+1)]
+            Qdd_ = arg[10][:,self.d*i:self.d*(i+1)]
+            Q__ = (Ad_ @ Pd + Pd @ Ad_.T) + (Add_ @ P + Ad @ Pd_ + Pd_ @ Ad.T + P @ Add_.T) + Qdd_
+            ret.append(solve_continuous_lyapunov(A,-Q__))
+        return [np.hstack(ret)]
+
 
 class LyapSolver(ca.Callback):
     '''
@@ -78,7 +96,7 @@ class LyapSolver(ca.Callback):
     def get_sparsity_in(self, i): return ca.Sparsity.dense(self.d, self.d)
     def get_sparsity_out(self, i): return ca.Sparsity.dense(self.d, self.d)
 
-    def has_forward(self, nfwd): return True
+    def has_forward(self, nfwd): return nfwd==1#True
     def has_reverse(self, nadj): return False # (nadj==1) # Adjoint doesn't currently support parallel eval (just 1 eval)
 
     def eval(self, arg):
