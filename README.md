@@ -1,9 +1,9 @@
 # Algorithmic Differentiation of Dynamic Systems
 This library provides tools for:
 - Building and composing linear dynamic systems with symbolic variables to represent parameters or design variables.
-- Optimizing (properties of) these systems over the design variables
+- Optimizing these systems over the design variables
   - [x] H2 norm
-- Constraining the optimization problem to maintain system properties:
+- Constraining the optimization problem to maintain system properties
   - [x] Stability (via Routh Table)
   - [x] Passivity
   
@@ -18,7 +18,7 @@ For continuous, SISO, LTI systems this equation looks like AX+XA' = Q. This equa
 Doing the naive solve (vectorize the equation then linear solve) works, but isn't stable for poorly-conditioned systems.  The Bartels-Stewart algorithm is a bit more robust, we use the one interfaced by Scipy for ease of install.
 
 
-*Stability:* Routh Tables can be calculated algorithmically -- recall that the system is stable if there's no sign changes in the first column. Denote the elements in this first column ri, we can add the constraint r0ri > 0 to our optimization problem.
+*Stability* is currently via Routh Tables which can be calculated algorithmically and are differentiable -- recall that the system is stable if there's no sign changes in the first column. Denote the elements in this first column ri, we can add the constraint r0ri > 0 to our optimization problem.
 
 *Passivity* can be enforced by separating the real/imaginary components of a transfer function (multiply by complex conjugate so denominator is real, then split even/odd powers of numerator).  The constraint Re{G}>0 can then be added to the optimization problem.
 
