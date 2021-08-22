@@ -131,7 +131,7 @@ def pade(dt, N):
 def lyap(A, Q, sol='scipy'):
     # Solve the Lyapunov equation A'X+XA = Q for real A in R n x n
     n = A.shape[0]
-    if not A.shape[1] == n or not Q.shazpe[0] == n or not Q.shape[1] == n:
+    if not A.shape[1] == n or not Q.shape[0] == n or not Q.shape[1] == n:
         print('ERROR in lyap: A and Q must be square of same dim')
     if sol is 'scipy':
         solver = LyapSolver('lyap_solver', A.shape[0])
