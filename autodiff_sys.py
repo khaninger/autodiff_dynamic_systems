@@ -17,8 +17,14 @@ class Sys():
         Initalize a transfer function system with coefficients given in num(erator) and den(ominator).
         The lists are ordered from highest power of 's' to lowest
         '''
-        self.num = num
-        self.den = den
+        self.num = []
+        self.den = []
+        for nu in num:
+            if type(nu) is not ca.MX: nu = ca.MX(nu)
+            self.num.append(nu)
+        for de in den:
+            if type(de) is not ca.MX: de = ca.MX(de)
+            self.den.append(de)
 
     def __mul__(self, other): # Overload * operator
         new_num = con(self.num, other.num)
@@ -144,6 +150,59 @@ class Sys():
         plt.clf()
         for om in np.logspace(*om_range, num = 1000):
             plt.plot(real_fn(om, *param_num), imag_fn(om, *param_num),'ko')
+
+    def build_ss(self):
+    # Put system into controllable canonical form, where num and den are lists of of coeffs on s
+        num = deepcopy(self.num)
+        den = deepcopy(self.den)
+
+        # Check if we can cancel some poles/zeros at 0
+        while ca.MX.is_zero(num[-1]) and ca.MX.is_zero(den[-1]):
+            print('Cancelling pole/zero at 0')
+            num.pop()
+            den.pop() 
+
+        # Pad front of numerator so they're the same length
+        n = len(den)-1
+        num = [0]*(n-len(num)) + num
+
+        # Scale so leading coeff on den is 1
+        num = [nu/den[0] for nu in num]
+        den = [de/den[0] for de in den]
+
+        Am = ca.vertcat(ca.horzcat(ca.MX.zeros((n-1,1)), ca.MX.eye(n-1)), ca.MX.zeros((1,n)))
+        Bm = ca.MX.zeros((n,1))
+        Cm = ca.MX.zeros((1,n))
+
+        # Depreciated by Kevin 29.8.21, was hard to verify
+        for i in range(n):
+            Am[-1, i] = -den[-i-1]
+            Cm[0, i] = num[-i-1]#-den[-i-1]*den[0]
+        Bm[-1] = 1
+
+
+        self.A = Am
+        self.B = Bm
+        self.C = Cm
+
+    def euler_discretize(self, dt):
+        if not hasattr(self, 'Am'): self.build_ss()
+        self.Ad = ca.MX.eye(self.A.size()[0]) + dt*self.A
+        self.Bd = dt*self.B
+
+    def simulate(self, u, x0, dt = 0):
+        # Simulate the discrete time system for the # of steps in u
+        if not hasattr(self, 'Ad'):
+            if dt == 0:
+                print("Either explicitly call euler_discretize or give a dt to simulate")
+            else:
+                self.euler_discretize(dt)
+        x_next = x0
+        y = [] #[self.C@x_next]
+        for un in u:
+            x_next = self.Ad@x_next + self.Bd*un
+            y.append(deepcopy(self.C@x_next))
+        return y
 
     def critical_points(self, num, den):
         # Find points where the slope of the given polynomial are zero
