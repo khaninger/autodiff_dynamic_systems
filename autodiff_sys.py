@@ -198,11 +198,13 @@ class Sys():
             else:
                 self.euler_discretize(dt)
         x_next = x0
+        x_traj = [deepcopy(x_next)]
         y = [] #[self.C@x_next]
         for un in u:
             x_next = self.Ad@x_next + self.Bd*un
+            x_traj.append(deepcopy(x_next))
             y.append(deepcopy(self.C@x_next))
-        return y
+        return y, x_traj
 
     def critical_points(self, num, den):
         # Find points where the slope of the given polynomial are zero

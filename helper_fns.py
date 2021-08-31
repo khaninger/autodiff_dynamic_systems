@@ -150,3 +150,13 @@ def h2(A, B, C, sol = 'scipy'):
     h2 = ca.sqrt(ca.trace(B.T @ Xo @ B))
     return h2, solver
 
+import csv
+def import_csv(name):
+    with open(name) as csv_file:
+        csv_reader = csv.reader(csv_file, delimiter=',')
+        f = []
+        x = []
+        for row in csv_reader:
+            x.append(float(row[0])/1000.0)
+            f.append(float(row[1]))
+    return x,f
