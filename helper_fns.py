@@ -150,6 +150,38 @@ def h2(A, B, C, sol = 'scipy'):
     h2 = ca.sqrt(ca.trace(B.T @ Xo @ B))
     return h2, solver
 
+def ent(b):
+    return np.sum([-w*np.log(w) for w in b])
+
+def inf_gain_np(b, mu, sigma):
+    D = 1.
+    ub = 0
+    for n in range(len(b)):
+        ln_arg = [b[m]*(2*np.pi)**(-D/2)*(sigma[n]+sigma[m])**(-0.5)\
+                  *np.exp(-0.5*(mu[n]-mu[m])\
+                          /(sigma[m]+sigma[n])\
+                          *(mu[n]-mu[m])) for m in range(len(b))]
+        ub += b[n]*(np.log(np.sum(ln_arg))\
+            +D/2*(np.log(2*np.pi)+1)\
+            +0.5*np.log((sigma[n])))
+    #print('ub: {}'.format(-ub))
+    return -ub
+
+def inf_gain(b, mu, sigma):
+    D = 1
+    ub = 0.0
+    for n in range(len(b)):
+        ln_arg = [b[m]*(2*np.pi)**(-D/2)*(sigma[n]+sigma[m])**(-0.5)\
+                  *ca.exp(-0.5*(mu[n]-mu[m])\
+                          /(sigma[m]+sigma[n])\
+                          *(mu[n]-mu[m])) for m in range(len(b))]
+        #print(ca.log(ca.sum1(ca.vertcat(*ln_arg))))
+        ub += b[n]*(ca.log(ca.sum1(ca.vertcat(*ln_arg)))\
+            +D/2*(ca.log(2*np.pi)+1)\
+            +0.5*ca.log((sigma[n])))
+    return -ub
+
+
 import csv
 def import_csv(name):
     with open(name) as csv_file:
@@ -160,3 +192,27 @@ def import_csv(name):
             x.append(float(row[0])/1000.0)
             f.append(float(row[1]))
     return x,f
+
+def import_txt(name):
+    # For importing standard datalogs from server
+    with open(name) as csv_file:
+        csv_reader = csv.reader(csv_file, delimiter=',')
+        f = []
+        x = []
+        for row in csv_reader:
+            x.append(float(row[4])/1.0)
+            f.append(float(row[28]))
+        x = np.squeeze(np.array(x))
+        f = np.squeeze(np.array(f))
+        v = np.convolve(np.diff(x),1.0/6.0*np.ones(6),'same')
+        drive_on = np.argwhere(f > 50)
+        start_of_contact = -1
+        if len(drive_on) is not 0:
+            free_space = np.argwhere(f <= 0)
+            contact = np.nonzero(f > 0)
+            for free in free_space:
+                if free[0] < drive_on[0]-50:
+                    start_of_contact = free[0]
+                else:
+                    break
+    return x, f, v, start_of_contact

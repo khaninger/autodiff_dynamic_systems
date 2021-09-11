@@ -186,9 +186,19 @@ class Sys():
         self.C = Cm
 
     def euler_discretize(self, dt):
-        if not hasattr(self, 'Am'): self.build_ss()
+        if not hasattr(self, 'A'): self.build_ss()
         self.Ad = ca.MX.eye(self.A.size()[0]) + dt*self.A
         self.Bd = dt*self.B
+
+    def tustin_discretize(self, dt):
+        if not hasattr(self, 'A'): self.build_ss()
+        self.Ad = (ca.MX.eye(self.A.size()[0]) + 0.5*dt*self.A)*ca.inv(ca.MX.eye(self.A.size()[0]) - 0.5*dt*self.A)
+        self.Bd = dt*self.B
+
+    def exp_discretize(self, dt):
+        if not hasattr(self, 'A'): self.build_ss()
+        self.Ad = ca.exp(self.A*dt)
+        self.Bd = ca.inv(self.A)@(self.Ad-ca.MX.eye(self.A.size()[0]))@self.B
 
     def simulate(self, u, x0, dt = 0):
         # Simulate the discrete time system for the # of steps in u
@@ -197,6 +207,8 @@ class Sys():
                 print("Either explicitly call euler_discretize or give a dt to simulate")
             else:
                 self.euler_discretize(dt)
+                #self.tustin_discretize(dt)
+                #self.exp_discretize(dt)
         x_next = x0
         x_traj = [deepcopy(x_next)]
         y = [] #[self.C@x_next]
