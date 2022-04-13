@@ -9,16 +9,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Project imports
-from helper_fns import *
+from .helper_fns import *
 
 class Sys():
-    def __init__(self, num, den):
+    def __init__(self, num, den, symb_type = ca.MX):
         '''
         Initalize a transfer function system with coefficients given in num(erator) and den(ominator).
         The lists are ordered from highest power of 's' to lowest
         '''
-        self.num = num
-        self.den = den
+        self.ty = symb_type
+        self.num = [symb_type(n) for n in num]
+        self.den = [symb_type(d) for d in den]
 
     def __mul__(self, other): # Overload * operator
         new_num = con(self.num, other.num)
@@ -71,11 +72,11 @@ class Sys():
          - Poles/zeros at 0 are cancelled automatically
          - Checks relative degree to see if norm exists
         '''
-        while ca.MX.is_zero(self.num[-1]) and ca.MX.is_zero(self.den[-1]):
+        while self.ty.is_zero(self.num[-1]) and self.ty.is_zero(self.den[-1]):
             print('Cancelling pole/zero at 0')
             self.num.pop()
             self.den.pop() 
-        if ca.MX.is_zero(self.den[-1]):
+        if self.ty.is_zero(self.den[-1]):
             print("System has pole at zero; H2 undefined")
         if len(self.num) >= len(self.den):
             print("System has relative degree greater than -1; H2 undefined")

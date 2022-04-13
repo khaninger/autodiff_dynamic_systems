@@ -10,7 +10,7 @@ import casadi as ca
 import numpy as np
 
 # Project imports
-from lyap_solver import LyapSolver
+from .lyap_solver import LyapSolver
 
 def con(a_in, b_in):
 # Convolve the lists a_in and b_in; assumes + and * defined over the elements
@@ -85,9 +85,10 @@ def tf2ss(num_in, den_in):
 # Put system into controllable canonical form, where num and den are lists of of coeffs on s
     num = deepcopy(num_in)
     den = deepcopy(den_in)
+    ty = type(num_in[0])
 
     # Check if we can cancel some poles/zeros at 0
-    while ca.MX.is_zero(num[-1]) and ca.MX.is_zero(den[-1]):
+    while ty.is_zero(num[-1]) and ty.is_zero(den[-1]):
         print('Cancelling pole/zero at 0')
         num.pop()
         den.pop() 
@@ -100,9 +101,9 @@ def tf2ss(num_in, den_in):
     num = [nu/den[0] for nu in num]
     den = [de/den[0] for de in den]
 
-    Am = ca.vertcat(ca.horzcat(ca.MX.zeros((n-1,1)), ca.MX.eye(n-1)), ca.MX.zeros((1,n)))
-    Bm = ca.MX.zeros((n,1))
-    Cm = ca.MX.zeros((1,n))
+    Am = ca.vertcat(ca.horzcat(ty.zeros((n-1,1)), ty.eye(n-1)), ty.zeros((1,n)))
+    Bm = ty.zeros((n,1))
+    Cm = ty.zeros((1,n))
     for i in range(n):
         Am[-1, i] = -den[-i-1]
         Cm[0,i] = num[-i-1]
